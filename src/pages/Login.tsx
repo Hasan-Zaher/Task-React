@@ -7,6 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { toast } from "sonner";
 import { useApp } from "@/context/AppContext";
+import { observer } from "mobx-react-lite";
 import ThemeSwitcher from "@/components/ThemeSwitcher";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
 import { Loader2 } from "lucide-react";
@@ -25,22 +26,32 @@ const Login = () => {
   }, [token, navigate]);
 
   const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  e.preventDefault();
 
-    if (!username || !password) {
-      toast.error(t("error"), { description: "Please fill in all fields" });
-      return;
-    }
+  if (!username || !password) {
+    toast.error(t("error"), { description: "Please fill in all fields" });
+    return;
+  }
 
-    try {
-      await login(username, password);
-      toast.success(t("success"), { description: t("welcomeBack") });
-      navigate("/forms");
-    } catch (error: any) {
-      toast.error(t("error"), { description: error.response?.data?.message || t("loginError") });
-    }
-  };
-
+  console.debug("Login.handleSubmit: invoking login", { username });
+  
+  try {
+    const result = await login(username, password);
+    
+   
+    toast.success(t("success"), { description: t("welcomeBack") });
+    navigate("/forms", { replace: true });
+    
+  } catch (error: any) {
+    console.error("Login.handleSubmit: error", error);
+    
+ 
+    toast.error(t("error"), { 
+      description: error.message || t("loginError") 
+    });
+  }
+};
+ 
   return (
     <div className="min-h-screen gradient-subtle flex items-center justify-center p-4">
       <div className="absolute top-4 right-4 flex items-center gap-2">
@@ -108,4 +119,4 @@ const Login = () => {
   );
 };
 
-export default Login;
+export default observer(Login);

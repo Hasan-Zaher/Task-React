@@ -1,6 +1,9 @@
-import { createContext, useContext, useState, useEffect, ReactNode } from "react";
+
 import axios from "axios";
-import { useTranslation } from "react-i18next";
+import { makeAutoObservable, runInAction } from "mobx";
+import i18n from "i18next";
+import { ReactNode } from "react";
+import { API_BASE_URL, API_ENDPOINTS } from '@/config/constants';
 
 interface User {
   id: string;
@@ -20,202 +23,390 @@ interface Form {
 type Theme = "light" | "dark";
 type Language = "en" | "ar";
 
-interface AppContextType {
+class AppStore {
   // Auth
-  user: User | null;
-  token: string | null;
-  authLoading: boolean;
-  login: (username: string, password: string) => Promise<void>;
-  register: (username: string, password: string) => Promise<void>;
-  logout: () => void;
-  
+  user: User | null = null;
+  token: string | null = null;
+  authLoading = false;
+  initialized = false;
+
   // Forms
-  forms: Form[];
-  selectedForm: Form | null;
-  formsLoading: boolean;
-  fetchForms: () => Promise<void>;
-  setSelectedForm: (form: Form | null) => void;
-  
-  // Theme
-  theme: Theme;
-  toggleTheme: () => void;
-  
-  // Language
-  language: Language;
-  setLanguage: (lang: Language) => void;
-}
+  forms: Form[] = [];
+  selectedForm: Form | null = null;
+  formsLoading = false;
 
-const AppContext = createContext<AppContextType | null>(null);
+  // Theme & Language
+  theme: Theme = "dark";
+  language: Language = "en";
 
-export const AppProvider = ({ children }: { children: ReactNode }) => {
-  const { i18n } = useTranslation();
-  
-  // Auth state
-  const [user, setUser] = useState<User | null>(null);
-  const [token, setToken] = useState<string | null>(null);
-  const [authLoading, setAuthLoading] = useState(false);
-  
-  // Forms state
-  const [forms, setForms] = useState<Form[]>([]);
-  const [selectedForm, setSelectedForm] = useState<Form | null>(null);
-  const [formsLoading, setFormsLoading] = useState(false);
-  
-  // Theme state
-  const [theme, setTheme] = useState<Theme>("light");
-  
-  // Language state
-  const [language, setLanguageState] = useState<Language>("en");
-  
-  // Load persisted state on mount
-  useEffect(() => {
-    // Load auth
-    const savedToken = localStorage.getItem("token");
-    const savedUser = localStorage.getItem("user");
-    if (savedToken && savedUser) {
-      setToken(savedToken);
-      setUser(JSON.parse(savedUser));
+  constructor() {
+ 
+    this.restoreState();
+    makeAutoObservable(this);
+  }
+
+ 
+  private restoreState = () => {
+    try {
+     
+      const savedToken = localStorage.getItem("token");
+      const savedUser = localStorage.getItem("user");
+      
+      if (savedToken) {
+        this.token = savedToken;
+      }
+      if (savedUser) {
+        try {
+          this.user = JSON.parse(savedUser);
+        } catch {
+          this.user = null;
+        }
+      }
+
+     
+      const savedTheme = localStorage.getItem("theme") as Theme | null;
+      if (savedTheme) {
+        this.theme = savedTheme;
+        this.applyTheme();  
+      } else {
+      
+        const prefersDark = window.matchMedia?.("(prefers-color-scheme: dark)").matches;
+        this.theme = prefersDark ? "dark" : "light";
+        this.applyTheme();
+      }
+
+      
+      const savedLang = localStorage.getItem("language") as Language | null;
+      if (savedLang) {
+        this.language = savedLang;
+        this.applyLanguage();  
+        
+         
+        setTimeout(() => {
+          this.safeChangeLanguage(savedLang);
+        }, 100);
+      } else {
+        
+        this.language = "en";
+        this.applyLanguage();
+      }
+
+    } catch (error) {
+      console.error('Error restoring state:', error);
     }
+  }
+
+  initialize = async (): Promise<void> => {
+    if (this.initialized) return;
+
+    try {
+     
+      this.applyTheme();
+      this.applyLanguage();
+
     
-    // Load theme
-    const savedTheme = localStorage.getItem("theme") as Theme;
-    if (savedTheme) {
-      setTheme(savedTheme);
+      if (this.language) {
+        await this.safeChangeLanguage(this.language);
+      }
+
+      runInAction(() => {
+        this.initialized = true;
+      });
+
+    } catch (error) {
+      console.error('Error initializing AppStore:', error);
+    }
+  }
+
+  checkAuth = (): boolean => {
+   
+    const token = localStorage.getItem("token");
+    const userStr = localStorage.getItem("user");
+    
+    if (token && userStr) {
+      try {
+        const user = JSON.parse(userStr);
+        runInAction(() => {
+          this.token = token;
+          this.user = user;
+        });
+        return true;
+      } catch {
+        this.logout();
+        return false;
+      }
     } else {
-      const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-      setTheme(prefersDark ? "dark" : "light");
+      
+      runInAction(() => {
+        this.token = null;
+        this.user = null;
+      });
+      return false;
     }
+  }
+
+  safeChangeLanguage = (lang: Language): Promise<void> => {
+    return new Promise((resolve) => {
+      const tryChangeLanguage = () => {
+        if (!i18n || typeof i18n.changeLanguage !== 'function') {
+          console.warn('i18n not initialized yet, retrying...');
+          setTimeout(tryChangeLanguage, 100);
+          return;
+        }
+        
+        i18n.changeLanguage(lang).then(() => {
+          console.log('Language changed successfully to:', lang);
+          resolve();
+        }).catch((error) => {
+          console.error('Failed to change language:', error);
+          resolve();
+        });
+      };
+      tryChangeLanguage();
+    });
+  }
+
+  applyTheme = () => {
+    if (typeof document === "undefined") return;
     
-    // Load language
-    const savedLang = localStorage.getItem("language") as Language;
-    if (savedLang) {
-      setLanguageState(savedLang);
-      i18n.changeLanguage(savedLang);
-    }
-  }, [i18n]);
-  
-  // Apply theme whenever it changes
-  useEffect(() => {
     const root = document.documentElement;
-    if (theme === "dark") {
+    
+   
+    root.classList.remove("light", "dark");
+    
+ 
+    if (this.theme === "dark") {
       root.classList.add("dark");
     } else {
-      root.classList.remove("dark");
+      root.classList.add("light");
     }
-  }, [theme]);
-  
-  // Apply language direction whenever it changes
-  useEffect(() => {
+    
+    console.log('Theme applied:', this.theme);
+  }
+
+  applyLanguage = () => {
+    if (typeof document === "undefined") return;
+    
     const root = document.documentElement;
-    root.setAttribute("dir", language === "ar" ? "rtl" : "ltr");
-    root.setAttribute("lang", language);
-  }, [language]);
-  
+    const direction = this.language === "ar" ? "rtl" : "ltr";
+    
+    root.setAttribute("dir", direction);
+    root.setAttribute("lang", this.language);
+    
+    console.log('Language applied:', this.language, 'Direction:', direction);
+  }
+
   // Auth actions
-  const login = async (username: string, password: string) => {
-    setAuthLoading(true);
-    try {
+  login = async (username: string, password: string) => {
+  runInAction(() => {
+    this.authLoading = true;
+  });
+  
+  try {
       const response = await axios.post(
-        "https://dynamic-test.s-apps.net/api/user/login",
+        `${API_BASE_URL}${API_ENDPOINTS.LOGIN}`, 
         { username, password }
       );
+
+    console.debug("AppStore.login: api response", response?.data);
+    
+    
+    if (response.data?.statusCode === 0) {
+      const token = response.data?.data?.token;
+      const user = response.data?.data?.user;
       
-      if (response.data.token && response.data.user) {
-        setToken(response.data.token);
-        setUser(response.data.user);
-        localStorage.setItem("token", response.data.token);
-        localStorage.setItem("user", JSON.stringify(response.data.user));
+      if (token) {
+        runInAction(() => {
+          this.token = token;
+          this.user = user ?? { id: '1', username };
+          this.authLoading = false;
+        });
+        
+        localStorage.setItem("token", token);
+        if (user) {
+          localStorage.setItem("user", JSON.stringify(user));
+        } else {
+          localStorage.setItem("user", JSON.stringify({ id: '1', username }));
+        }
+        
+        return { success: true, token, user };
       } else {
-        throw new Error(response.data.message || "Login failed");
+        throw new Error("Login successful but no token received");
       }
-    } finally {
-      setAuthLoading(false);
+    } else {
+   
+      const errorMessage = response.data?.message?.message || 
+                          response.data?.message || 
+                          "Login failed";
+      throw new Error(errorMessage);
     }
-  };
+    
+  } catch (error: any) {
+    runInAction(() => {
+      this.authLoading = false;
+    });
+    
+    console.error("AppStore.login: error", error);
+    
+   
+    let errorMessage = "Login failed";
+    
+    if (error.response?.data?.statusCode === 1) {
+      //   م ن     (Invalid credentials)
+      errorMessage = error.response.data?.message?.message || 
+                    error.response.data?.message || 
+                    "Invalid credentials";
+    } else if (error.response?.data?.message) {
+ 
+      errorMessage = error.response.data.message;
+    } else if (error.message) {
+ 
+      errorMessage = error.message;
+    }
+    
+    throw new Error(errorMessage);
+  }
+}
+ 
+  register = async (username: string, password: string) => {
+  runInAction(() => {
+    this.authLoading = true;
+  });
   
-  const register = async (username: string, password: string) => {
-    setAuthLoading(true);
-    try {
-      const response = await axios.post(
-        "https://dynamic-test.s-apps.net/api/user/register",
+  try {
+    const response = await axios.post(
+        `${API_BASE_URL}${API_ENDPOINTS.REGISTER}`, 
         { username, password }
       );
+    
+    console.debug("AppStore.register: api response", response?.data);
+    
+   
+    if (response.data?.statusCode === 0) {
+    
+      runInAction(() => {
+        this.authLoading = false;
+      });
       
-      if (response.data.token && response.data.user) {
-        setToken(response.data.token);
-        setUser(response.data.user);
-        localStorage.setItem("token", response.data.token);
-        localStorage.setItem("user", JSON.stringify(response.data.user));
-      }
-    } finally {
-      setAuthLoading(false);
+    
+      return {
+        success: true,
+        message: response.data?.message || "Registration successful",
+        data: response.data?.data
+      };
+    } else {
+ 
+      throw new Error(response.data?.message || "Registration failed");
     }
-  };
+    
+  } catch (error: any) {
+    runInAction(() => {
+      this.authLoading = false;
+    });
+    
+    console.error("AppStore.register: error", error);
+    
+    
+    const errorMessage = error.response?.data?.message || 
+                        error.message || 
+                        "Registration failed";
+    
+    throw new Error(errorMessage);
+  }
+}
   
-  const logout = () => {
-    setUser(null);
-    setToken(null);
+
+  logout = () => {
+    runInAction(() => {
+      this.user = null;
+      this.token = null;
+      this.authLoading = false;
+      this.forms = [];
+    });
     localStorage.removeItem("token");
     localStorage.removeItem("user");
-  };
-  
-  // Forms actions
-  const fetchForms = async () => {
-    setFormsLoading(true);
+  }
+
+  // Forms
+  fetchForms = async () => {
+    runInAction(() => {
+      this.formsLoading = true;
+    });
+    
     try {
-      const response = await axios.get(
-        "https://dynamic-test.s-apps.net/api/form",
+     const response = await axios.get(
+        `${API_BASE_URL}${API_ENDPOINTS.FORMS}`,
         {
-          headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+          headers: this.token ? { Authorization: `Bearer ${this.token}` } : undefined,
         }
       );
-      setForms(response.data.forms || response.data.data || []);
+     
+      const apiData = response.data?.data ?? [];
+      const transformedForms = Array.isArray(apiData) ? apiData.map(form => ({
+        id: form.id,
+        title: form.name || 'Untitled Form',
+        description: form.description || `Form with ${form.schema?.length || 0} sections`,
+        createdAt: form.createdAt,
+        updatedAt: form.updatedAt,
+        status: form.status || "Active",
+        originalData: form.data,
+        schema: form.schema,
+        name: form.name,
+        data: form.data
+      })) : [];
+      
+      runInAction(() => {
+        this.forms = transformedForms;
+        this.formsLoading = false;
+      });
     } catch (error) {
       console.error("Failed to fetch forms:", error);
-      setForms([]);
-    } finally {
-      setFormsLoading(false);
+      runInAction(() => {
+        this.forms = [];
+        this.formsLoading = false;
+      });
     }
-  };
-  
-  // Theme actions
-  const toggleTheme = () => {
-    const newTheme = theme === "light" ? "dark" : "light";
-    setTheme(newTheme);
-    localStorage.setItem("theme", newTheme);
-  };
-  
-  // Language actions
-  const setLanguage = (lang: Language) => {
-    setLanguageState(lang);
-    i18n.changeLanguage(lang);
-    localStorage.setItem("language", lang);
-  };
-  
-  const value: AppContextType = {
-    user,
-    token,
-    authLoading,
-    login,
-    register,
-    logout,
-    forms,
-    selectedForm,
-    formsLoading,
-    fetchForms,
-    setSelectedForm,
-    theme,
-    toggleTheme,
-    language,
-    setLanguage,
-  };
-  
-  return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
+  }
+
+  setSelectedForm = (form: Form | null) => {
+    this.selectedForm = form;
+  }
+
+ 
+  toggleTheme = () => {
+    runInAction(() => {
+      this.theme = this.theme === "light" ? "dark" : "light";
+      localStorage.setItem("theme", this.theme);
+      this.applyTheme();  
+    });
+  }
+
+  setTheme = (theme: Theme) => {
+    runInAction(() => {
+      this.theme = theme;
+      localStorage.setItem("theme", theme);
+      this.applyTheme(); 
+    });
+  }
+
+ 
+  setLanguage = (lang: Language) => {
+    runInAction(() => {
+      this.language = lang;
+      localStorage.setItem("language", lang);
+      this.applyLanguage(); 
+      this.safeChangeLanguage(lang);
+    });
+  }
+}
+
+ 
+const appStore = new AppStore();
+
+export const AppProvider = ({ children }: { children: ReactNode }) => {
+  return <>{children}</>;
 };
 
 export const useApp = () => {
-  const context = useContext(AppContext);
-  if (!context) {
-    throw new Error("useApp must be used within AppProvider");
-  }
-  return context;
-};
+  return appStore;
+}; 

@@ -6,9 +6,10 @@ import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { toast } from "sonner";
 import { useApp } from "@/context/AppContext";
+import { observer } from "mobx-react-lite";
 import ThemeSwitcher from "@/components/ThemeSwitcher";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
-import { Loader2, LogOut, Search, FileText } from "lucide-react";
+import { Loader2, LogOut, Search, FileText, RefreshCw, Layout, Database } from "lucide-react";
 
 const FormsList = () => {
   const { t } = useTranslation();
@@ -16,9 +17,19 @@ const FormsList = () => {
   const { fetchForms, forms, formsLoading, logout, setSelectedForm } = useApp();
   const [searchQuery, setSearchQuery] = useState("");
 
+
+  
+
   useEffect(() => {
     loadForms();
   }, []);
+ 
+  useEffect(() => {
+    if (forms.length > 0) {
+      console.log("Forms_data", forms);
+      console.log("First form details:", forms[0]);
+    }
+  }, [forms]);
 
   const loadForms = async () => {
     try {
@@ -41,8 +52,32 @@ const FormsList = () => {
 
   const filteredForms = forms.filter((form) =>
     form.title?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    form.description?.toLowerCase().includes(searchQuery.toLowerCase())
+    form.description?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    form.name?.toLowerCase().includes(searchQuery.toLowerCase())  
   );
+
+  // Helper function to get form status badge
+  const getStatusBadge = (form: any) => {
+    if (form.status) return form.status;
+    if (form.data && form.data.length > 0) return "Has Data";
+    return "Draft";
+  };
+
+  // Helper function to get form description
+  const getFormDescription = (form: any) => {
+    if (form.description) return form.description;
+    
+    const sectionCount = form.schema?.length || 0;
+    const dataCount = form.data?.length || 0;
+    
+    if (sectionCount > 0 && dataCount > 0) {
+      return `${sectionCount} sections, ${dataCount} data entries`;
+    } else if (sectionCount > 0) {
+      return `${sectionCount} sections, no data yet`;
+    } else {
+      return "No sections defined";
+    }
+  };
 
   return (
     <div className="min-h-screen gradient-subtle">
@@ -105,24 +140,42 @@ const FormsList = () => {
                 onClick={() => handleFormClick(form)}
               >
                 <CardHeader>
-                  <CardTitle className="group-hover:text-primary transition-colors">
-                    {form.title}
+                  <CardTitle className="group-hover:text-primary transition-colors line-clamp-1">
+                    {form.title || form.name || 'Untitled Form'}
                   </CardTitle>
-                  {form.description && (
-                    <CardDescription className="line-clamp-2">
-                      {form.description}
-                    </CardDescription>
-                  )}
+                  <CardDescription className="line-clamp-2">
+                    {getFormDescription(form)}
+                  </CardDescription>
                 </CardHeader>
                 <CardContent>
                   <div className="flex items-center justify-between text-sm text-muted-foreground">
-                    {form.status && (
-                      <span className="px-2 py-1 bg-accent/20 rounded-full text-accent-foreground">
-                        {form.status}
-                      </span>
-                    )}
+                    <span className={`px-2 py-1 rounded-full ${
+                      getStatusBadge(form) === 'Active' 
+                        ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300'
+                        : getStatusBadge(form) === 'Has Data'
+                        ? 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300'
+                        : 'bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-300'
+                    }`}>
+                      {getStatusBadge(form)}
+                    </span>
                     {form.createdAt && (
                       <span>{new Date(form.createdAt).toLocaleDateString()}</span>
+                    )}
+                  </div>
+                  
+                  {/* Additional form info */}
+                  <div className="mt-3 flex items-center gap-4 text-xs text-muted-foreground">
+                    {form.schema && (
+                      <span className="flex items-center gap-1">
+                        <Layout className="h-3 w-3" />
+                        {form.schema.length} sections
+                      </span>
+                    )}
+                    {form.data && (
+                      <span className="flex items-center gap-1">
+                        <Database className="h-3 w-3" />
+                        {form.data.length} entries
+                      </span>
                     )}
                   </div>
                 </CardContent>
@@ -135,17 +188,25 @@ const FormsList = () => {
         {!formsLoading && filteredForms.length === 0 && (
           <div className="text-center py-20 animate-fade-in">
             <FileText className="h-20 w-20 mx-auto text-muted-foreground mb-4" />
-            <h3 className="text-xl font-semibold mb-2">{t("noForms")}</h3>
-            <p className="text-muted-foreground">
-              {searchQuery
-                ? "No forms match your search"
-                : "Start by creating your first form"}
+            <h3 className="text-xl font-semibold mb-2">
+              {searchQuery ? "No forms match your search" : t("noForms")}
+            </h3>
+            <p className="text-muted-foreground mb-4">
+              {searchQuery 
+                ? "Try adjusting your search terms" 
+                : "Start by creating your first form"
+              }
             </p>
+            {!searchQuery && (
+              <Button onClick={loadForms} variant="outline" className="gap-2">
+                <RefreshCw className="h-4 w-4" />
+                Refresh Forms
+              </Button>
+            )}
           </div>
         )}
       </main>
     </div>
   );
 };
-
-export default FormsList;
+export default observer(FormsList);

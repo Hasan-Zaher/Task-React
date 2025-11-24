@@ -8,6 +8,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { useApp } from "@/context/AppContext";
 import { useTranslation } from "react-i18next";
+import { observer } from "mobx-react-lite";
 
 const LanguageSwitcher = () => {
   const { language, setLanguage } = useApp();
@@ -38,4 +39,4 @@ const LanguageSwitcher = () => {
   );
 };
 
-export default LanguageSwitcher;
+export default observer(LanguageSwitcher);
