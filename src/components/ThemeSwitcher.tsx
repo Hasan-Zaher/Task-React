@@ -1,6 +1,7 @@
 import { Moon, Sun } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useApp } from "@/context/AppContext";
+import { observer } from "mobx-react-lite";
 
 const ThemeSwitcher = () => {
   const { theme, toggleTheme } = useApp();
@@ -17,4 +18,4 @@ const ThemeSwitcher = () => {
   );
 };
 
-export default ThemeSwitcher;
+export default observer(ThemeSwitcher);

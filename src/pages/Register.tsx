@@ -7,6 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { toast } from "sonner";
 import { useApp } from "@/context/AppContext";
+import { observer } from "mobx-react-lite";
 import ThemeSwitcher from "@/components/ThemeSwitcher";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
 import { Loader2 } from "lucide-react";
@@ -18,40 +19,52 @@ const Register = () => {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
-
+  console.log(authLoading)
   useEffect(() => {
     if (token) {
       navigate("/forms", { replace: true });
     }
   }, [token, navigate]);
+const handleSubmit = async (e: React.FormEvent) => {
+  e.preventDefault();
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  if (!username || !password || !confirmPassword) {
+    toast.error(t("error"), { description: "Please fill in all fields" });
+    return;
+  }
 
-    if (!username || !password || !confirmPassword) {
-      toast.error(t("error"), { description: "Please fill in all fields" });
-      return;
-    }
+  if (password !== confirmPassword) {
+    toast.error(t("error"), { description: "Passwords do not match" });
+    return;
+  }
 
-    if (password !== confirmPassword) {
-      toast.error(t("error"), { description: "Passwords do not match" });
-      return;
-    }
+  if (password.length < 6) {
+    toast.error(t("error"), { description: "Password must be at least 6 characters" });
+    return;
+  }
 
-    if (password.length < 6) {
-      toast.error(t("error"), { description: "Password must be at least 6 characters" });
-      return;
-    }
-
-    try {
-      await register(username, password);
-      toast.success(t("success"), { description: "Account created successfully!" });
-      navigate("/forms");
-    } catch (error: any) {
-      toast.error(t("error"), { description: error.response?.data?.message || t("registerError") });
-    }
-  };
-
+  console.debug("Register.handleSubmit: invoking register", { username, password });
+  
+  try {
+    const result = await register(username, password);
+    
+   
+    toast.success(t("success"), { 
+      description: result.message || "Account created successfully! Please login." 
+    });
+    
+ 
+    navigate("/login", { replace: true });
+    
+  } catch (error: any) {
+    console.error("Register.handleSubmit: error", error);
+    
+    toast.error(t("error"), { 
+      description: error.message || t("registerError") 
+    });
+  }
+};
+ 
   return (
     <div className="min-h-screen gradient-subtle flex items-center justify-center p-4">
       <div className="absolute top-4 right-4 flex items-center gap-2">
@@ -131,4 +144,4 @@ const Register = () => {
   );
 };
 
-export default Register;
+export default observer(Register);
